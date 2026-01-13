@@ -1,0 +1,119 @@
+{
+  "settings_version": "0.23.0",
+  "debug": false,
+  "obsidian_command_palette_prefix": "Execute: ",
+  "preview_variables_in_command_palette": true,
+  "show_autocomplete_menu": true,
+  "working_directory": "",
+  "default_shells": {},
+  "environment_variable_path_augmentations": {
+    "darwin": "'/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11', \n'/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/lib-dynload', \n'/Users/tylergordon/Library/Python/3.11/lib/python/site-packages', \n'/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages'"
+  },
+  "show_installation_warnings": true,
+  "error_message_duration": 20,
+  "notification_message_duration": 10,
+  "execution_notification_mode": "disabled",
+  "output_channel_clipboard_also_outputs_to_notification": true,
+  "output_channel_notification_decorates_output": true,
+  "enable_events": true,
+  "approve_modals_by_pressing_enter_key": true,
+  "command_palette": {
+    "re_execute_last_shell_command": {
+      "enabled": true,
+      "prefix": "Re-execute: "
+    }
+  },
+  "max_visible_lines_in_shell_command_fields": false,
+  "shell_commands": [
+    {
+      "id": "92zk8uoag7",
+      "platform_specific_commands": {
+        "default": "/Library/Frameworks/Python.framework/Versions/3.11/bin/python3 /Users/tylergordon/research/bibtex_to_markdown/markdown_from_ads.py {{_url}} {{_destination}}"
+      },
+      "shells": {},
+      "alias": "Download ADS bibliography page",
+      "icon": null,
+      "confirm_execution": false,
+      "ignore_error_codes": [],
+      "input_contents": {
+        "stdin": null
+      },
+      "output_handlers": {
+        "stdout": {
+          "handler": "ignore",
+          "convert_ansi_code": true
+        },
+        "stderr": {
+          "handler": "notification",
+          "convert_ansi_code": true
+        }
+      },
+      "output_wrappers": {
+        "stdout": null,
+        "stderr": null
+      },
+      "output_channel_order": "stdout-first",
+      "output_handling_mode": "buffered",
+      "execution_notification_mode": null,
+      "events": {},
+      "debounce": null,
+      "command_palette_availability": "enabled",
+      "preactions": [
+        {
+          "type": "prompt",
+          "enabled": true,
+          "prompt_id": "wcnq09gm6j"
+        }
+      ],
+      "variable_default_values": {}
+    }
+  ],
+  "prompts": [
+    {
+      "id": "wcnq09gm6j",
+      "title": "Enter ADS link",
+      "description": "",
+      "preview_shell_command": false,
+      "fields": [
+        {
+          "type": "single-line-text",
+          "label": "url: ",
+          "description": "",
+          "default_value": " ",
+          "target_variable_id": "guytkdhoi7",
+          "required": true
+        },
+        {
+          "type": "single-line-text",
+          "label": "destination: ",
+          "description": "What directory should the bibliography page go in?",
+          "default_value": "Literature",
+          "target_variable_id": "q2vooagyu0",
+          "required": true
+        }
+      ],
+      "execute_button_text": "download"
+    }
+  ],
+  "builtin_variables": {},
+  "custom_variables": [
+    {
+      "id": "guytkdhoi7",
+      "name": "url",
+      "description": "",
+      "default_value": null
+    },
+    {
+      "id": "q2vooagyu0",
+      "name": "destination",
+      "description": "",
+      "default_value": null
+    }
+  ],
+  "custom_variables_notify_changes_via": {
+    "obsidian_uri": true,
+    "output_assignment": true
+  },
+  "custom_shells": [],
+  "output_wrappers": []
+}
