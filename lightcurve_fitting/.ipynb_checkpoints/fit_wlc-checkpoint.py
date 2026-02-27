@@ -80,7 +80,7 @@ def load_data_jedi(d):
     time = np.load(d + '_times_bjd.npy')
     time = np.array(time, dtype=np.float64)
     time_offset = time[0]
-    time -= time[0]
+    #time -= time[0]
     spect = np.load(d + '.npy')
     wavs = np.load(d + '_wav.npy')
 
@@ -95,7 +95,7 @@ def load_data_eureka(d):
     with h5py.File(d, 'r') as file:
         time = np.array(file['time'], dtype=np.float64)
         time_offset = time[0]
-        time -= time_offset
+        #time -= time_offset
         spect = np.array(file['optspec'], dtype=np.float64)
         wavs = np.array(file['wave_1d'], dtype=np.float64)
         xshifts = np.array(file['x'], dtype=np.float64)
@@ -129,21 +129,22 @@ def prep_data(control_dict):
         yshifts.append(ys)
         errs.append(e)
         tos.append(to)
-        
-    to_jd = Time(tos[0], format='mjd', scale='tdb').jd
-    
-    for priors in control_dict['priors']:
-        tmid = priors['tranmid'].init
-        t0 = np.mod(tmid - to_jd, priors['orbper'].init)
-        priors['t0'] = distributions.uniform_prior(times[0][0], times[0][-1], init=t0)
 
     sort = np.argsort([t[0] for t in times])
-    times = [times[i] for i in sort]
+    tos = [tos[i] for i in sort]
+    times = [times[i] - tos[0] for i in sort]
     spects = [spects[i] for i in sort]
     wavs = [wavs[i] for i in sort]
     xshifts = [xshifts[i] for i in sort]
     yshifts = [yshifts[i] for i in sort]
     errs = [errs[i] for i in sort]
+    
+    to_jd = Time(tos[0], format='mjd', scale='tdb').jd
+    
+    for priors in control_dict['priors']:
+        tmid = priors['tranmid'].init
+        t0 = np.mod(tmid - to_jd, priors['orbper'].init)
+        priors['t0'] = distributions.uniform_prior(-np.inf, np.inf, init=t0)
 
     mask_columns = control_dict['columns_to_mask']
     mask = np.array([True] * len(wavs[0]))
@@ -189,12 +190,13 @@ def get_joint_initial_params(
     polyorder,
 ):
     
+    nplanets = len(priors)
     other_params = []
     other_widths = []
     for i, (t, f, e, d, dv) in enumerate(
         zip(times, fluxes, errs, detectors, detrending_vectors)
     ):
-        initial_params, widths = get_initial_params(
+        initial_params, widths, _ = get_initial_params(
             t,
             f, 
             e,
@@ -205,27 +207,27 @@ def get_joint_initial_params(
             polyorder=polyorder,
         )
 
-        n_other = polyorder + 5 + len(detrending_vectors[0])
+        n_other = polyorder + 4 + nplanets + len(detrending_vectors[0])
             
         other_params.append(initial_params[:n_other])
         other_widths.append(widths[:n_other])
         if i == 0:
             transit_params = initial_params[n_other:]
             transit_widths = widths[n_other:]
-
+            
     return (
         np.concatenate([np.concatenate(other_params), transit_params]),
         np.concatenate([np.concatenate(other_widths), transit_widths])
     )
 
-def get_joint_log_prob(lps, n_components, polyorder=1):
+def get_joint_log_prob(lps, n_components, polyorder=1, nplanets=1):
 
     n_lcs = len(lps)
-    n_op = polyorder + 5 + n_components        
+    n_op = polyorder + 4 + nplanets + n_components        
     n_other_params = n_op * n_lcs
-    
+        
     def log_prob(p):
-
+        
         transit_params, other_params = p[n_other_params:], p[:n_other_params]
         
         total_prob = 0
@@ -251,6 +253,9 @@ def run_mcmc(
     nproc=1,
 ):
     
+    nplanets = len(priors)
+    n_components = len(detrending_vectors[0])
+    
     params, widths = get_joint_initial_params(
         times, 
         fluxes, 
@@ -274,8 +279,9 @@ def run_mcmc(
     )
     log_prob = get_joint_log_prob(
         lps, 
-        len(detrending_vectors), 
+        n_components, 
         polyorder, 
+        nplanets,
     )
 
     widths = np.array([np.min([w, 1e-4]) for w in widths])
@@ -323,7 +329,12 @@ def set_optional_params(control_dict):
     
     return control_dict
 
-def fit(control_dict):
+def fit(control_dict, samples=None, burnin=None):
+    
+    if samples is None:
+        samples = control_dict['samples']
+    if burnin is None:
+        burnin = control_dict['burnin']
     
     times, spects, errs, wavs, _, _, detectors = prep_data(control_dict)
     
@@ -331,10 +342,11 @@ def fit(control_dict):
     detrending_vectors = np.array(control_dict['detrending_vectors'] * len(times))
     
     n = len(times)
+    nplanets = len(control_dict['priors'])
     fluxes = [np.nansum(s, axis=1) for s in spects]
     flux_err = [np.sqrt(np.nansum(e**2, axis=1)) for e in errs]
         
-    n_sys_params_per_transit = control_dict['polyorder'] + len(control_dict['detrending_vectors'][0]) + 5
+    n_sys_params_per_transit = control_dict['polyorder'] + len(control_dict['detrending_vectors'][0]) + 4 + nplanets
     n_sys_params = n_sys_params_per_transit * n
       
     # first transit should start at t=0 
@@ -351,6 +363,8 @@ def fit(control_dict):
                 sigma=control_dict['out_sigma']
             ).mask
         )
+        
+    detrending_vectors = [dv[~m] if len(dv)==len(m) else [] for dv, m in zip(detrending_vectors, masks)]
 
     sampler = run_mcmc(
         [t[~m] for t, m in zip(times, masks)],
@@ -361,12 +375,12 @@ def fit(control_dict):
         control_dict['priors'],
         control_dict['stellar_parameters'], 
         polyorder=control_dict['polyorder'], 
-        samples=control_dict['samples'],
+        samples=samples,
         progress=control_dict['progress'],
         nproc=control_dict['num_proc'],
     )
 
-    chains = sampler.get_chain()[control_dict['burnin']:, :, :]
+    chains = sampler.get_chain()[burnin:, :, :]
 
     results = []
     transit_params, other_params = chains[:, :, n_sys_params:], chains[:, :, :n_sys_params]
@@ -377,10 +391,10 @@ def fit(control_dict):
         other_params = other_params[:, :, n_sys_params_per_transit:]
         chain = np.concatenate([op, transit_params], axis=2)
             
-        transit_param_names = ['tranmid', 'ratror', 'orbper', 'ratdor', 
+        transit_param_names = ['ratror', 'orbper', 'ratdor', 
             'orbincl', 'orbeccen', 'orblper'
         ]
-        transit_param_labels = ['u1', 'u2']
+        transit_param_labels = ['u1', 'u2'] + ['tranmid{}'.format(i) for i in range(nplanets)]
         for j, prior in enumerate(control_dict['priors']):
             transit_param_labels = transit_param_labels + [n + '{}'.format(j) for n in transit_param_names]
             
@@ -445,9 +459,10 @@ def check_initial_state(control_dict):
         detrending_vectors = np.array([[]] * len(times))
     
     models = []
+    masks = []
     for time, spect, err, flux, dv, detector in zip(times, spects, errs, fluxes, detrending_vectors, detectors):
 
-        inits, _ = get_initial_params(
+        inits, _, mask = get_initial_params(
             time,
             flux, 
             err,
@@ -458,6 +473,8 @@ def check_initial_state(control_dict):
             polyorder=control_dict['polyorder'],
         )
         
+        masks.append(mask)
+        
         models.append(
             get_model(
                 inits,
@@ -467,4 +484,4 @@ def check_initial_state(control_dict):
             )
         )
         
-    return models
+    return models, masks

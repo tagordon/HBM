@@ -79,7 +79,7 @@ def gls_fit(time, flux, vectors, mask, polyorder=1, return_coeffs=False):
 def get_trend_model(time, vectors, coeffs, polyorder):
 
     time_terms = np.array(
-        [time**i for i in np.arange(1, polyorder + 1)]
+        [time**i for i in np.arange(polyorder + 1)]
     )
 
     if len(vectors)==0:

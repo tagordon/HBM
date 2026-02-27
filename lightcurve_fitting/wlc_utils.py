@@ -55,6 +55,8 @@ def get_initial_transit_params(
     # get initial values and distribution widths from planet priors
     values = []
     widths = []
+    midtimes = []
+    midtime_widths = []
     for i, prior in enumerate(priors):
         d = prior.copy()
         istr = '{}'.format(i)
@@ -63,12 +65,15 @@ def get_initial_transit_params(
         w = [p.width for k, p in d.items() if k in pl_param_names]
         v = [v[gk] for gk in [keys.index(k + istr) for k in pl_param_names]]
         w = [w[gk] for gk in [keys.index(k + istr) for k in pl_param_names]]
+        
+        midtimes.append(v.pop(0))
+        midtime_widths.append(w.pop(0))
         values = values + v
         widths = widths + w
-        
+    
     return (
-        np.concatenate([[u[0], u[1]], values]), 
-        np.concatenate([[du[0], du[1]], widths])
+        np.concatenate([[u[0], u[1]], midtimes, values]), 
+        np.concatenate([[du[0], du[1]], midtime_widths, widths])
     )
 
 def build_mask(time, flux, priors, filter_window=30, out_sigma=3):
@@ -82,7 +87,8 @@ def build_mask(time, flux, priors, filter_window=30, out_sigma=3):
     
     trans_mask = np.zeros_like(flux, dtype=np.bool_)
     for prior in priors:
-        trans_mask = trans_mask | (np.abs(time - prior['t0'].init) < 1.1 * prior['trandur'].init / 48)
+        tmid = np.mod(prior['t0'].init - time[0], prior['orbper'].init) + time[0]
+        trans_mask = trans_mask | (np.abs(time - tmid) < 1.1 * prior['trandur'].init / 48)
     
     return out_mask | trans_mask
 
@@ -122,17 +128,19 @@ def get_initial_params(
     params = np.concatenate([noise_params, coeffs, p])
     widths = np.concatenate([noise_widths, coeffs_widths, dp])
         
-    return params, widths
+    return params, widths, mask
 
 def compute_priors(priors, params, u1_prior, u2_prior, ld_prior):
 
+    n = len(priors)
     u1, u2 = params[:2]
-    transit_params = params[2:]
+    t0s = params[2:2+n]
+    transit_params = params[2+n:]
     pr = 0
             
     for i, prior in enumerate(priors):
-        for p, name in zip(transit_params[i*7:(i+1)*7], pl_param_names):
-            
+        pr += prior['t0'].prior(t0s[i])
+        for p, name in zip(transit_params[i*6:(i+1)*6], pl_param_names[1:]):
             pr += prior[name].prior(p)
 
     if ld_prior:
@@ -157,13 +165,14 @@ def get_model(
     coeffs = p[1:ncoeffs + 1]
     f = coeffs[0]
     p = p[1 + ncoeffs:]
-    
+        
     # number of transits based on number of provided parameters
     n = np.int64(np.floor((len(p) - 2) // 7))
 
-    trend = get_trend_model(time, detrending_vectors, coeffs[1:], polyorder)
+    trend = get_trend_model(time, detrending_vectors, coeffs, polyorder)
     mu = 1 + keplerian_transit(time, n, p)
-    return mu * f + trend
+    
+    return mu * trend # * f + trend
         
 
 def build_logp(
@@ -178,7 +187,8 @@ def build_logp(
     ld_priors=True,
 ):
 
-    ncoeffs = 1 + polyorder + len(detrending_vectors)
+    n_components = len(detrending_vectors)
+    ncoeffs = 1 + polyorder + n_components
         
     start_wav, end_wav = get_wav_bounds(detector)
     u1_prior, u2_prior = get_ld_priors(start_wav, end_wav, st_params)
@@ -194,25 +204,25 @@ def build_logp(
         # number of transits based on number of provided parameters
         n = np.int64(np.floor((len(p) - 2) // 7))
         
-        trend = get_trend_model(time, detrending_vectors, coeffs[1:], polyorder)
+        trend = get_trend_model(time, detrending_vectors, coeffs, polyorder)
         err = np.sqrt(e2 + err_inflate**2)
         
-        try:
+        #try:
 
-            mu = 1 + keplerian_transit(time, n, p)
-            mu = mu * f + trend
-            ll = log_likelihood(flux, mu, err)
+        mu = (1 + keplerian_transit(time, n, p)) * trend
+        #mu = mu * f + trend
+        ll = log_likelihood(flux, mu, err)
 
-            pr = compute_priors(
-                priors, p, u1_prior, u2_prior, ld_priors
-            )
+        pr = compute_priors(
+            priors, p, u1_prior, u2_prior, ld_priors
+        )
 
-            if np.isfinite(ll) & np.all(err > 0):
-                return ll + pr
-            else:
-                return -np.inf
-                
-        except Exception as e:
+        if np.isfinite(ll) & np.all(err > 0):
+            return ll + pr
+        else:
             return -np.inf
+                
+        #except Exception as e:
+        #    return -np.inf
 
     return log_prob

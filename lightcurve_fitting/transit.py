@@ -8,14 +8,16 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 def keplerian_transit(t, n, p):
     
     u1, u2 = p[:2]
-    params = p[2:]
+    t0s = p[2:2+n]
+    params = p[2+n:]
+    
     
     m = np.zeros_like(t)
-    for i in range(n):
+    for j in range(n):
         
-        t0, r, p, a, i, e, w = params[i*7:(i+1)*7]
+        r, p, a, i, e, w = params[j*6:(j+1)*6]
         param_obj = batman.TransitParams()
-        param_obj.t0 = t0                     #time of inferior conjunction
+        param_obj.t0 = t0s[j]                 #time of inferior conjunction
         param_obj.per = p                     #orbital period
         param_obj.rp = r                      #planet radius (in units of stellar radii)
         param_obj.a = a                       #semi-major axis (in units of stellar radii)
