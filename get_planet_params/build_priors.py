@@ -29,7 +29,7 @@ def get_params(name, author=None, year=None, prefixes=['st', 'pl', 'sy']):
                     pd[k] = (param_set[k], np.nan, np.nan)
                 except:
                     pass
-                
+        
         all_param_dicts[ref] = pd
             
     return all_param_dicts
@@ -71,7 +71,7 @@ def get_priors(name, author=None, year=None, allow_assymetric=True, prefixes=['s
                         priors_dict[k] = normal_prior(p[0], np.nanmax(p[1:]))
                 else:
                     priors_dict[k] = p[0]
-                    
+                                        
         all_priors_dicts[ref] = priors_dict
         
     return all_priors_dicts

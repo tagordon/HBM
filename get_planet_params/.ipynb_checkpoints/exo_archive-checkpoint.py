@@ -12,7 +12,7 @@ def get_archive_name(name):
         return archive_name
 
     else:
-        raise Error('planet not found')
+        raise Exception('planet not found, status: ' + status)
         
 def get_from_ps(name):
     

@@ -71,7 +71,7 @@ def get_priors(name, author=None, year=None, allow_assymetric=True, prefixes=['s
                         priors_dict[k] = normal_prior(p[0], np.nanmax(p[1:]))
                 else:
                     priors_dict[k] = p[0]
-                    
+                                        
         all_priors_dicts[ref] = priors_dict
         
     return all_priors_dicts

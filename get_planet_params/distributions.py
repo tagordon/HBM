@@ -1,5 +1,23 @@
 import numpy as np
 
+class constant: 
+    '''
+    Not really a prior, just a placeholder for constant values.
+    '''
+    
+    def __init__(self, init=None):
+        
+        self.width = 0
+        self.vec_prior = np.vectorize(self.prior)
+        
+        if init is None:
+            self.init = 0
+        else:
+            self.init = init
+            
+    def prior(self, x):
+        return -np.inf
+
 class uniform_prior:
     '''
     A uniform prior. 
@@ -79,6 +97,7 @@ class assymetric_normal_prior:
         self.mu = mu
         self.sigp = sigp
         self.sigm = sigm
+        self.width = np.min(np.abs([sigp, sigm]))
         self.vec_prior = np.vectorize(self.prior)
         
         if init is None:
@@ -94,7 +113,7 @@ class assymetric_normal_prior:
         
         if x < self.mu:
             return -0.5 * (x - self.mu)**2 / self.sigm**2
-        if x > self.mu:
+        if x >= self.mu:
             return -0.5 * (x - self.mu)**2 / self.sigp**2
         
 class trunc_assymetric_normal_prior:
@@ -111,6 +130,7 @@ class trunc_assymetric_normal_prior:
         self.sigm = sigm
         self.low = low
         self.high = high
+        self.width = np.min(np.abs([high - low, sigp, sigm]))
         self.vec_prior = np.vectorize(self.prior)
         
         if init is None:
@@ -127,7 +147,7 @@ class trunc_assymetric_normal_prior:
         if (x >= self.low) & (x <= self.high):
             if x < self.mu:
                 return -0.5 * (x - self.mu)**2 / self.sigm**2
-            if x > self.mu:
+            if x >= self.mu:
                 return -0.5 * (x - self.mu)**2 / self.sigp**2
         else:
             return -np.inf
