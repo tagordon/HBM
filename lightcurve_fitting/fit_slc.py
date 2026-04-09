@@ -10,6 +10,7 @@ def get_log_probs(
     fixed_params, 
     start_wav, 
     end_wav, 
+    disp_filt,
     st_params_dict, 
     polyorder=1,
 ):
@@ -25,6 +26,7 @@ def get_log_probs(
                 st_params_dict,
                 start_wav,
                 end_wav,
+                disp_filt,
                 polyorder=polyorder, 
             )
         )
@@ -38,7 +40,7 @@ def get_joint_initial_params(
     polyorder=1,
 ):
 
-    nplanets = (len(fixed_params) - 2) // 7
+    nplanets = (len(fixed_params[0]) - 2) // 7
     other_params = []
     for i, (t, f, fp) in enumerate(
         zip(times, fluxes, fixed_params)
@@ -58,6 +60,7 @@ def get_joint_initial_params(
     return np.concatenate([transit_params, np.concatenate(other_params)])
     #return np.concatenate([np.concatenate(other_params), transit_params])
 
+# problem in here somewhere.
 def get_joint_log_prob(lps, polyorder):
 
     n_lcs = len(lps)
@@ -67,12 +70,14 @@ def get_joint_log_prob(lps, polyorder):
 
         # r1, r2, u1, u2, err, p1, p2
         transit_params, other_params = p[:-n_other_params], p[-n_other_params:]
+        #print(p, n_other_params)
 
         total_prob = 0
         for i in range(len(lps)):
 
             n_op = polyorder + 2
-            op = other_params[-n_op:]
+            op = other_params[:n_op]
+            other_params = other_params[n_op:]
             total_prob += lps[i](np.concatenate([transit_params, op]))
             
         return total_prob
@@ -86,6 +91,7 @@ def run(
     stellar_params,
     wav_bin_edges,
     masks,
+    disp_filt,
     polyorder, 
     progress,
     nproc,
@@ -94,6 +100,7 @@ def run(
        
     ncoeffs = 1 + polyorder
     
+    # u1, u2, t1, t2, transit_params1, transit_params2
     fixed_params = [wlp[1 + ncoeffs:] for wlp in wl_params]
     masks = np.array([np.tile(masks[i], (1, specs[i].shape[1])).T for i in range(len(masks))])
 
@@ -101,7 +108,7 @@ def run(
 
         mask = np.array(~masks[:, ind])
 
-        # r1, r2, u1, u2, err, p1, p2
+        # r1, r2, u1, u2, err, p1, p2... 
         params = get_joint_initial_params(
             [t[m] for t, m in zip(times, mask)], 
             [s[m, ind] for s, m in zip(specs, mask)], 
@@ -115,6 +122,7 @@ def run(
             fixed_params, 
             wav_bin_edges[ind],
             wav_bin_edges[ind + 1], 
+            disp_filt,
             stellar_params, 
             polyorder=polyorder,
         )
@@ -197,7 +205,7 @@ def set_optional_params(control_dict):
     
     return control_dict
 
-def crop(specs, errs, wavs, detector, start_wav, end_wav):
+def crop(specs, errs, wavs, start_wav, end_wav):
     
     specs = [s[:, (wavs > start_wav) & (wavs < end_wav)] for s in specs]
     errs = [e[:, (wavs > start_wav) & (wavs < end_wav)] for e in errs]
@@ -220,7 +228,8 @@ def fit(wlc_result, samples=None):
     specs = [res['spect'] for res in wlc_result]
     errs = [res['errs'] for res in wlc_result]
     stellar_params = control_dict['stellar_parameters']
-    detector = wlc_result[0]['detector']
+    #start_wav = wlc_result[0]['start_wav']
+    #end_wav = wlc_result[0]['end_wav']
     wavs = wlc_result[0]['wavs']
             
     wl_params = []
@@ -247,7 +256,7 @@ def fit(wlc_result, samples=None):
         wl_params.append(wl_vals)
          
     times = [np.array(t, dtype=np.float64) for t in times]
-    specs, errs, wavs = crop(specs, errs, wavs, detector, control_dict['start_wav'], control_dict['end_wav'])
+    specs, errs, wavs = crop(specs, errs, wavs, control_dict['start_wav'], control_dict['end_wav'])
 
     wav_per_bin, pix_per_bin = control_dict['wav_per_bin'], control_dict['pix_per_bin']
     if (wav_per_bin is None) & (pix_per_bin is None):
@@ -324,6 +333,7 @@ def fit(wlc_result, samples=None):
         stellar_params,
         wav_bin_edges,
         masks,
+        control_dict['disp_filt'],
         polyorder,
         control_dict['progress'],
         control_dict['num_proc_slc'],
@@ -344,6 +354,8 @@ def fit(wlc_result, samples=None):
         
 
     result_dir = {
+        'control_dict': control_dict,
+        'nplanets': nplanets,
         'wl_params': wl_params,
         'wavs': binned_wavs,
         'lightcurves': binned_specs,

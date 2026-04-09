@@ -11,12 +11,15 @@ from build_priors import get_params, get_priors
 import distributions
 
 au_per_rs = 215.0320290
+re_per_rs = 0.009168
+gs = 27400
+rhos = 1.408
 
-def load_priors_and_parameters(target, pl_ref, st_ref):
+def load_priors(target, pl_ref, st_ref):
     
     pl_author, pl_year = pl_ref
     st_author, st_year = st_ref
-    
+   
     priors = get_priors(target, author=pl_author, year=pl_year)
     params = get_params(target, author=st_author, year=st_year)
     
@@ -36,9 +39,27 @@ def load_priors_and_parameters(target, pl_ref, st_ref):
         if ('pl_' in k) & (not isinstance(v, (int, float)))
     }
 
+    if not 'logg' in st_params:
+        print('Caution: Estimating logg from stellar mass and radius')
+        if 'dens' in st_params:
+            dens = st_params['dens'] / rhos
+        else:
+            dens = st_params['mass'] / st_params['rad']**3
+        st_params['logg'] = np.log10(gs * dens**(2/3) * st_params['mass']**(1/3))
+
     #pl_priors['tranmid'] = distributions.uniform_prior(0.0, 100.0)
-    pl_priors['ratror'] = distributions.uniform_prior(0.0, 1.0, init=pl_priors['ratror'].init)
-    
+    if not 'ratror' in pl_priors.keys():
+        if 'rade' in pl_priors.keys():
+            ratror = re_per_rs / st_params['rad'] * pl_priors['rade'].init
+            ratror_err = re_per_rs / st_params['rad'] * pl_priors['rade'].width
+            pl_priors['ratror'] = distributions.normal_prior(ratror, ratror_err)
+        elif 'radj' in pl_priors.keys():
+            ratror = rj_per_rs / st_params['rad'] * pl_priors['radj'].init
+            ratror_err = rj_per_rs / st_params['rad'] * pl_priors['radj'].width
+            pl_priors['ratror'] = distributions.normal_prior(ratror, ratror_err)
+    else:
+        pl_priors['ratror'] = distributions.uniform_prior(0.0, 1.0, init=pl_priors['ratror'].init)
+
     if not 'ratdor' in pl_priors.keys():
         if 'orbsmax' in pl_priors.keys():
             ratdor = au_per_rs / st_params['rad'] * pl_priors['orbsmax'].init
@@ -57,7 +78,7 @@ def load_priors_and_parameters(target, pl_ref, st_ref):
             a = pl_priors['ratdor'].init
         else:
             raise Exception('reference has no value for semimajor axis.')
-        incl_width = 180 / np.pi * np.arccos((1 + k) * rs / a * (1 + ecc * np.sin(w)) / (1 - ecc**2))
+        incl_width = 180 / np.pi * np.arccos((1 + k) / a * (1 + ecc * np.sin(w)) / (1 - ecc**2))
         pl_priors['orbincl'] = distributions.uniform_prior(90 - incl_width, 90 + incl_width, init=90.0)
         
     if not 'trandur' in pl_priors.keys():
@@ -143,7 +164,8 @@ def prep_data(control_dict):
     
     for priors in control_dict['priors']:
         tmid = priors['tranmid'].init
-        t0 = np.mod(tmid - to_jd, priors['orbper'].init)
+        t0 = np.mod(tmid - to_jd, priors['orbper'].init) + control_dict['delta_t0']
+        print('center of transit guess: {}'.format(t0))
         priors['t0'] = distributions.uniform_prior(-np.inf, np.inf, init=t0)
 
     mask_columns = control_dict['columns_to_mask']
@@ -154,22 +176,22 @@ def prep_data(control_dict):
     errs = [e[:, mask] for e in errs]
     fluxes = [np.nansum(s, axis=1) for s in spects]
     specs = [np.nansum(s, axis=0) for s in spects]
-    
-    detectors = [control_dict['detector']] * len(control_dict['data_directories'])
-    
-    return times, spects, errs, wavs, specs, fluxes, detectors
+        
+    return times, spects, errs, wavs, specs, fluxes
 
-def get_log_probs(times, fluxes, errs, detectors, detrending_vectors, priors, st_params, polyorder=1):
+def get_log_probs(times, fluxes, errs, start_wav, end_wav, disp_filt, detrending_vectors, priors, st_params, polyorder=1):
 
     lps = []
-    for t, f, e, d, dv in zip(times, fluxes, errs, detectors, detrending_vectors):
+    for t, f, e, dv in zip(times, fluxes, errs, detrending_vectors):
         lps.append(
             build_logp(
                 t,
                 f, 
                 e,
                 dv, 
-                d,
+                start_wav,
+                end_wav,
+                disp_filt,
                 priors,
                 st_params,
                 polyorder=polyorder, 
@@ -184,7 +206,9 @@ def get_joint_initial_params(
     fluxes, 
     errs,
     detrending_vectors,
-    detectors, 
+    start_wav,
+    end_wav,
+    disp_filt,
     priors, 
     st_params, 
     polyorder,
@@ -193,14 +217,16 @@ def get_joint_initial_params(
     nplanets = len(priors)
     other_params = []
     other_widths = []
-    for i, (t, f, e, d, dv) in enumerate(
-        zip(times, fluxes, errs, detectors, detrending_vectors)
+    for i, (t, f, e, dv) in enumerate(
+        zip(times, fluxes, errs, detrending_vectors)
     ):
         initial_params, widths, _ = get_initial_params(
             t,
             f, 
             e,
-            d, 
+            start_wav,
+            end_wav,
+            disp_filt,
             dv,
             priors,
             st_params,
@@ -244,7 +270,9 @@ def run_mcmc(
     fluxes, 
     errs,
     detrending_vectors,
-    detectors, 
+    start_wav,
+    end_wav,
+    disp_filt,
     priors,
     st_params,
     polyorder=1, 
@@ -261,7 +289,9 @@ def run_mcmc(
         fluxes, 
         errs,
         detrending_vectors,
-        detectors, 
+        start_wav,
+        end_wav,
+        disp_filt,
         priors, 
         st_params,  
         polyorder,
@@ -271,7 +301,9 @@ def run_mcmc(
         times, 
         fluxes, 
         errs,
-        detectors, 
+        start_wav,
+        end_wav,
+        disp_filt,
         detrending_vectors, 
         priors, 
         st_params, 
@@ -336,7 +368,7 @@ def fit(control_dict, samples=None, burnin=None):
     if burnin is None:
         burnin = control_dict['burnin']
     
-    times, spects, errs, wavs, _, _, detectors = prep_data(control_dict)
+    times, spects, errs, wavs, _, _ = prep_data(control_dict)
     
     control_dict = set_optional_params(control_dict)
     detrending_vectors = np.array(control_dict['detrending_vectors'] * len(times))
@@ -371,7 +403,9 @@ def fit(control_dict, samples=None, burnin=None):
         [f[~m] for f, m in zip(fluxes, masks)], 
         [e[~m] for e, m in zip(flux_err, masks)],
         [dv[~m] if len(dv)==len(m) else [] for dv, m in zip(detrending_vectors, masks)],
-        detectors, 
+        control_dict['start_wav'],
+        control_dict['end_wav'],
+        control_dict['disp_filt'],
         control_dict['priors'],
         control_dict['stellar_parameters'], 
         polyorder=control_dict['polyorder'], 
@@ -403,7 +437,6 @@ def fit(control_dict, samples=None, burnin=None):
                 'control_dict': control_dict,
                 'detrending_vectors': detrending_vectors[i],
                 'polyorder': control_dict['polyorder'],
-                'detector': detectors[i],
                 'chain': chain,
                 'mask': masks[i],
                 'time': times[i],
@@ -451,7 +484,7 @@ def get_model_samples(result, n=None):
     
 def check_initial_state(control_dict):
     
-    times, spects, errs, wavs, _, fluxes, detectors = prep_data(control_dict)
+    times, spects, errs, wavs, _, fluxes = prep_data(control_dict)
     
     try:
         detrending_vectors = control_dict['detrending_vectors']
@@ -460,13 +493,15 @@ def check_initial_state(control_dict):
     
     models = []
     masks = []
-    for time, spect, err, flux, dv, detector in zip(times, spects, errs, fluxes, detrending_vectors, detectors):
+    for time, spect, err, flux, dv in zip(times, spects, errs, fluxes, detrending_vectors):
 
         inits, _, mask = get_initial_params(
             time,
             flux, 
             err,
-            detector, 
+            control_dict['start_wav'],
+            control_dict['end_wav'],
+            control_dict['disp_filt'],
             dv,
             control_dict['priors'],
             control_dict['stellar_parameters'],

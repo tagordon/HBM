@@ -8,6 +8,8 @@ from multiprocess import Pool
 import multiprocess.context as ctx
 ctx._force_start_method('spawn')
 
+import sys
+sys.path.append('../get_planet_params/')
 from distributions import *
 from transit import *
 from utils import *
@@ -20,36 +22,19 @@ pl_param_names = [
     'orbincl', 'orbeccen', 'orblper'
 ]
 
-def get_wav_bounds(detector):
-
-    if detector == 'nrs1':
-        start_wav = 2.87
-        end_wav = 3.81
-    elif detector == 'nrs2':
-        start_wav = 3.92
-        end_wav = 5.27
-    else:
-        raise ValueError(
-            '''
-            Invalid detector string. 
-            Detector must either be nrs1 or nrs2.
-            '''
-        )
-
-    return start_wav, end_wav
-
 def get_initial_transit_params(
     time,
     flux,
     priors, 
     st_params,
-    detector,
+    start_wav,
+    end_wav,
+    disp_filt
 ):
 
     # get initial values and widths for limb darkening parameters
-    start_wav, end_wav = get_wav_bounds(detector)
     u, du = get_ld_params(
-        start_wav, end_wav, st_params
+        start_wav, end_wav, disp_filt, st_params
     )
 
     # get initial values and distribution widths from planet priors
@@ -78,12 +63,10 @@ def get_initial_transit_params(
 
 def build_mask(time, flux, priors, filter_window=30, out_sigma=3):
     
-    for prior in priors:
-
-        out_mask = sigma_clip(
-            flux - gaussian_filter1d(flux, filter_window), 
-            sigma=out_sigma
-        ).mask
+    out_mask = sigma_clip(
+        flux - gaussian_filter1d(flux, filter_window), 
+        sigma=out_sigma
+    ).mask
     
     trans_mask = np.zeros_like(flux, dtype=np.bool_)
     for prior in priors:
@@ -96,7 +79,9 @@ def get_initial_params(
     time,
     flux, 
     err,
-    detector, 
+    start_wav,
+    end_wav,
+    disp_filt,
     detrending_vectors, 
     priors,
     st_params,
@@ -119,7 +104,9 @@ def get_initial_params(
         flux,
         priors, 
         st_params,
-        detector,
+        start_wav,
+        end_wav,
+        disp_filt
     )
 
     noise_params = [err_guess]
@@ -180,7 +167,9 @@ def build_logp(
     flux, 
     err,
     detrending_vectors,
-    detector, 
+    start_wav,
+    end_wav,
+    disp_filt,
     priors,
     st_params,
     polyorder=1, 
@@ -190,8 +179,7 @@ def build_logp(
     n_components = len(detrending_vectors)
     ncoeffs = 1 + polyorder + n_components
         
-    start_wav, end_wav = get_wav_bounds(detector)
-    u1_prior, u2_prior = get_ld_priors(start_wav, end_wav, st_params)
+    u1_prior, u2_prior = get_ld_priors(start_wav, end_wav, disp_filt, st_params)
     e2 = err**2
 
     def log_prob(p):
@@ -207,22 +195,21 @@ def build_logp(
         trend = get_trend_model(time, detrending_vectors, coeffs, polyorder)
         err = np.sqrt(e2 + err_inflate**2)
         
-        #try:
+        try:
 
-        mu = (1 + keplerian_transit(time, n, p)) * trend
-        #mu = mu * f + trend
-        ll = log_likelihood(flux, mu, err)
+            mu = (1 + keplerian_transit(time, n, p)) * trend
+            ll = log_likelihood(flux, mu, err)
 
-        pr = compute_priors(
-            priors, p, u1_prior, u2_prior, ld_priors
-        )
+            pr = compute_priors(
+                priors, p, u1_prior, u2_prior, ld_priors
+            )
 
-        if np.isfinite(ll) & np.all(err > 0):
-            return ll + pr
-        else:
-            return -np.inf
+            if np.isfinite(ll) & np.all(err > 0):
+                return ll + pr
+            else:
+                return -np.inf
                 
-        #except Exception as e:
-        #    return -np.inf
+        except Exception as e:
+            return -np.inf
 
     return log_prob

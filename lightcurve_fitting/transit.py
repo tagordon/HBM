@@ -1,6 +1,5 @@
 import numpy as np
 import batman
-from distributions import *
 
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -10,8 +9,7 @@ def keplerian_transit(t, n, p):
     u1, u2 = p[:2]
     t0s = p[2:2+n]
     params = p[2+n:]
-    
-    
+        
     m = np.zeros_like(t)
     for j in range(n):
         
