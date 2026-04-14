@@ -15,6 +15,10 @@ re_per_rs = 0.009168
 gs = 27400
 rhos = 1.408
 
+# download the parameters for the planet and 
+# star from the exoplanet archive and build the 
+# priors dictionary. Attempts to fill in any 
+# missing parameters using Kepler's laws and unit conversions where necessary 
 def load_priors(target, pl_ref, st_ref):
     
     pl_author, pl_year = pl_ref
@@ -95,7 +99,7 @@ def load_priors(target, pl_ref, st_ref):
     
     return pl_priors, st_params
 
-
+# load input data from the JEDI pipeline 
 def load_data_jedi(d):
 
     time = np.load(d + '_times_bjd.npy')
@@ -111,6 +115,7 @@ def load_data_jedi(d):
 
     return time, wavs, spect, err, time_offset, xshifts, yshifts
 
+# load input data from the Eureka pipeline 
 def load_data_eureka(d):
 
     with h5py.File(d, 'r') as file:
@@ -125,6 +130,9 @@ def load_data_eureka(d):
 
     return time, wavs, spect, err, time_offset, xshifts, yshifts
 
+# extract the required arrays from the pipeline output and 
+# compute the expected transit times using the transit parameters 
+# from the exoplanet archive 
 def prep_data(control_dict):
     
     if control_dict['pipeline'] == 'eureka':
@@ -179,6 +187,7 @@ def prep_data(control_dict):
         
     return times, spects, errs, wavs, specs, fluxes
 
+# get all of the log-probability functions (one for each visit, returned as an array)
 def get_log_probs(times, fluxes, errs, start_wav, end_wav, disp_filt, detrending_vectors, priors, st_params, polyorder=1):
 
     lps = []
@@ -201,6 +210,8 @@ def get_log_probs(times, fluxes, errs, start_wav, end_wav, disp_filt, detrending
         
     return lps
 
+# get the initial parameters for the dataset by combining the initial 
+# parameters for each individual visit 
 def get_joint_initial_params(
     times, 
     fluxes, 
@@ -246,6 +257,8 @@ def get_joint_initial_params(
         np.concatenate([np.concatenate(other_widths), transit_widths])
     )
 
+# build and return the log-probability function for the whole dataset by summing over the 
+# log-probability functions for each individual visit 
 def get_joint_log_prob(lps, n_components, polyorder=1, nplanets=1):
 
     n_lcs = len(lps)
@@ -265,6 +278,7 @@ def get_joint_log_prob(lps, n_components, polyorder=1, nplanets=1):
 
     return log_prob
 
+# run the MCMC 
 def run_mcmc(
     times,
     fluxes, 
@@ -347,6 +361,7 @@ def run_mcmc(
             
     return sampler
 
+# set any control parameters that weren't provided in the control dictionary to their default values 
 def set_optional_params(control_dict):
     
     optional_params = ['polyorder', 'detrending_vectors', 'out_filter_width', 'out_sigma', 'progress']
@@ -361,6 +376,8 @@ def set_optional_params(control_dict):
     
     return control_dict
 
+# wraps the run_mcmc function. reads the control dictionary, sets everything up, and 
+# carries out the MCMC simulation. 
 def fit(control_dict, samples=None, burnin=None):
     
     if samples is None:
@@ -459,6 +476,7 @@ def fit(control_dict, samples=None, burnin=None):
 
     return results
 
+# get n transit models from the posterior distribution for plotting 
 def get_model_samples(result, n=None):
     
     if n is None:
@@ -481,7 +499,8 @@ def get_model_samples(result, n=None):
             polyorder=result['polyorder']
         )
         return [get_single_model(p) for p in samples[inds]]
-    
+
+# get the initial transit models and transit masks.
 def check_initial_state(control_dict):
     
     times, spects, errs, wavs, _, fluxes = prep_data(control_dict)

@@ -40,10 +40,6 @@ wav_ranges = [
     (0.70, 1.27)
 ]
 
-# ‘JWST_NIRSpec_Prism’, ‘JWST_NIRSpec_G395H’, ‘JWST_NIRSpec_G395M’,
-#‘JWST_NIRSpec_G235H’, ‘JWST_NIRSpec_G235M’, ‘JWST_NIRSpec_G140H’,
-#‘JWST_NIRSpec_G140M-f100’, ‘JWST_NIRSpec_G140H-f070’, ‘JWST_NIRSpec_G140M-f070’
-
 exotic_ld_modes = [
     'JWST_NIRSpec_Prism',
     'JWST_NIRSpec_G395H',
@@ -59,6 +55,8 @@ exotic_ld_modes = [
     'JWST_NIRSpec_G140M-f070'
 ]
 
+# get the wavelength ranges corresponding to the 
+# disperser/filter_(detector) combination 
 def get_wav_ranges(disp_filt):
     
     try:
@@ -68,6 +66,9 @@ def get_wav_ranges(disp_filt):
     
     return start_wav, end_wav
 
+# get the limb-darkening parameters corresponding to the 
+# wavlength ranges, disperser/filter_(detector) combination 
+# for the given stellar parameters from exotic-ld
 def get_ld_params(start_wav, end_wav, disp_filt, stellar_params):
 
     try:
@@ -91,6 +92,7 @@ def get_ld_params(start_wav, end_wav, disp_filt, stellar_params):
     )
     return u, du
 
+# build limb-darkening priors from the exotid-ld output 
 def get_ld_priors(start_wav, end_wav, disp_filt, stellar_params):
 
     u, du = get_ld_params(start_wav, end_wav, disp_filt, stellar_params)
@@ -98,6 +100,8 @@ def get_ld_priors(start_wav, end_wav, disp_filt, stellar_params):
     u2_prior = trunc_normal_prior(u[1], du[1], 0, 1)
     return u1_prior, u2_prior
 
+# carry out a generalized least-squares fit to get initial parameters 
+# for the systematics model, including any detrending vectors
 def gls_fit(time, flux, vectors, mask, polyorder=1, return_coeffs=False):
     
     time_terms_masked = np.array(
@@ -142,6 +146,8 @@ def gls_fit(time, flux, vectors, mask, polyorder=1, return_coeffs=False):
         else:
             return P @ coeffs
 
+# returns the systematics model for a given set of systematics 
+# coefficients and polynomial order 
 def get_trend_model(time, vectors, coeffs, polyorder):
 
     time_terms = np.array(
