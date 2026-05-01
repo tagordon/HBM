@@ -22,9 +22,6 @@ pl_param_names = [
     'orbincl', 'orbeccen', 'orblper'
 ]
 
-# gets the initial transit parameters from the priors dictionary, computes the 
-# priors for the limb-darkening parameters based on the stellar parameters and the 
-# wavelength range + disperser/filter_(detector) combination.
 def get_initial_transit_params(
     time,
     flux,
@@ -64,8 +61,6 @@ def get_initial_transit_params(
         np.concatenate([[du[0], du[1]], midtime_widths, widths])
     )
 
-# mask the transit based on the expected transit time and duration computed 
-# from the priors for the planet 
 def build_mask(time, flux, priors, filter_window=30, out_sigma=3):
     
     out_mask = sigma_clip(
@@ -80,9 +75,6 @@ def build_mask(time, flux, priors, filter_window=30, out_sigma=3):
     
     return out_mask | trans_mask
 
-# get the full set of initial parameters for the MCMC chains 
-# which include the planet parameters + estimates for the systematics 
-# and noise parameters. 
 def get_initial_params(
     time,
     flux, 
@@ -125,8 +117,6 @@ def get_initial_params(
         
     return params, widths, mask
 
-# compute the values of the prior probability for any set of input parameters 
-# given the priors dictionary and the limb-darkening priors (if ld_prior = True)
 def compute_priors(priors, params, u1_prior, u2_prior, ld_prior):
 
     n = len(priors)
@@ -149,7 +139,6 @@ def compute_priors(priors, params, u1_prior, u2_prior, ld_prior):
         
     return pr
 
-# get transit model given parameters p, time array, detrending vectors, and optionally the polynomial order 
 def get_model(
     p,
     time,
@@ -172,8 +161,7 @@ def get_model(
     
     return mu * trend # * f + trend
         
-# build the function that returns the log-probability for a given parameter set 
-# and data + auxiliary information 
+
 def build_logp(
     time,
     flux, 

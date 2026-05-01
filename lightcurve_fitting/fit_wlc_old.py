@@ -15,10 +15,6 @@ re_per_rs = 0.009168
 gs = 27400
 rhos = 1.408
 
-# download the parameters for the planet and 
-# star from the exoplanet archive and build the 
-# priors dictionary. Attempts to fill in any 
-# missing parameters using Kepler's laws and unit conversions where necessary 
 def load_priors(target, pl_ref, st_ref):
     
     pl_author, pl_year = pl_ref
@@ -99,8 +95,8 @@ def load_priors(target, pl_ref, st_ref):
     
     return pl_priors, st_params
 
-# load input data from the JEDI pipeline -- not set up for NIRISS/SOSS
-def load_data_jedi(d, disp_filt):
+
+def load_data_jedi(d):
 
     time = np.load(d + '_times_bjd.npy')
     time = np.array(time, dtype=np.float64)
@@ -115,33 +111,20 @@ def load_data_jedi(d, disp_filt):
 
     return time, wavs, spect, err, time_offset, xshifts, yshifts
 
-# load input data from the Eureka pipeline 
-def load_data_eureka(d, disp_filt):
+def load_data_eureka(d):
 
     with h5py.File(d, 'r') as file:
         time = np.array(file['time'], dtype=np.float64)
         time_offset = time[0]
+        #time -= time_offset
         spect = np.array(file['optspec'], dtype=np.float64)
         wavs = np.array(file['wave_1d'], dtype=np.float64)
-        err = np.array(file['opterr'], dtype=np.float64)
-        
-        if disp_filt.split('_')[-1] == 'o1':
-            spect = spect[:, :, 0]
-            wavs = wavs[:, 0]
-            err = err[:, :, 0]
-        elif disp_filt.split('_')[-1] == 'o2':
-            spect = spect[:, :, 1]
-            wavs = wavs[:, 1]
-            err = err[:, :, 1]
-            
         xshifts = np.array(file['x'], dtype=np.float64)
         yshifts = np.array(file['y'], dtype=np.float64)
+        err = np.array(file['opterr'], dtype=np.float64)
 
     return time, wavs, spect, err, time_offset, xshifts, yshifts
 
-# extract the required arrays from the pipeline output and 
-# compute the expected transit times using the transit parameters 
-# from the exoplanet archive 
 def prep_data(control_dict):
     
     if control_dict['pipeline'] == 'eureka':
@@ -159,7 +142,7 @@ def prep_data(control_dict):
     errs = []
     tos = []
     for d in control_dict['data_directories']:
-        t, w, s, e, to, xs, ys = load_func(d, control_dict['disp_filt'])
+        t, w, s, e, to, xs, ys = load_func(d)
         times.append(t)
         spects.append(s)
         wavs.append(w)
@@ -196,7 +179,6 @@ def prep_data(control_dict):
         
     return times, spects, errs, wavs, specs, fluxes
 
-# get all of the log-probability functions (one for each visit, returned as an array)
 def get_log_probs(times, fluxes, errs, start_wav, end_wav, disp_filt, detrending_vectors, priors, st_params, polyorder=1):
 
     lps = []
@@ -219,8 +201,6 @@ def get_log_probs(times, fluxes, errs, start_wav, end_wav, disp_filt, detrending
         
     return lps
 
-# get the initial parameters for the dataset by combining the initial 
-# parameters for each individual visit 
 def get_joint_initial_params(
     times, 
     fluxes, 
@@ -266,8 +246,6 @@ def get_joint_initial_params(
         np.concatenate([np.concatenate(other_widths), transit_widths])
     )
 
-# build and return the log-probability function for the whole dataset by summing over the 
-# log-probability functions for each individual visit 
 def get_joint_log_prob(lps, n_components, polyorder=1, nplanets=1):
 
     n_lcs = len(lps)
@@ -287,7 +265,6 @@ def get_joint_log_prob(lps, n_components, polyorder=1, nplanets=1):
 
     return log_prob
 
-# run the MCMC 
 def run_mcmc(
     times,
     fluxes, 
@@ -370,11 +347,10 @@ def run_mcmc(
             
     return sampler
 
-# set any control parameters that weren't provided in the control dictionary to their default values 
 def set_optional_params(control_dict):
     
-    optional_params = ['polyorder', 'detrending_vectors', 'out_filter_width', 'out_sigma', 'progress', 'delta_t0']
-    defaults = [1, [[]], 50, 4, True, 0.0]
+    optional_params = ['polyorder', 'detrending_vectors', 'out_filter_width', 'out_sigma', 'progress']
+    defaults = [1, [[]], 50, 4, True]
     
     for k, d in zip(optional_params, defaults):
         
@@ -385,23 +361,16 @@ def set_optional_params(control_dict):
     
     return control_dict
 
-# wraps the run_mcmc function. reads the control dictionary, sets everything up, and 
-# carries out the MCMC simulation. 
 def fit(control_dict, samples=None, burnin=None):
     
     if samples is None:
         samples = control_dict['samples']
     if burnin is None:
         burnin = control_dict['burnin']
-        
-    control_dict = set_optional_params(control_dict)
+    
     times, spects, errs, wavs, _, _ = prep_data(control_dict)
     
-    inbounds = [(wav > control_dict['start_wav']) & (wav < control_dict['end_wav']) for wav in wavs]
-    wavs = [wav[ib] for wav, ib in zip(wavs, inbounds)]
-    spects = [spect[:, ib] for spect, ib in zip(spects, inbounds)]
-    errs = [err[:, ib] for err, ib in zip(errs, inbounds)]
-    
+    control_dict = set_optional_params(control_dict)
     detrending_vectors = np.array(control_dict['detrending_vectors'] * len(times))
     
     n = len(times)
@@ -411,6 +380,11 @@ def fit(control_dict, samples=None, burnin=None):
         
     n_sys_params_per_transit = control_dict['polyorder'] + len(control_dict['detrending_vectors'][0]) + 4 + nplanets
     n_sys_params = n_sys_params_per_transit * n
+      
+    # first transit should start at t=0 
+    #to = times[0][0]
+    #for i in range(len(times)):
+    #    times[i] -= to
 
     # build outlier masks 
     masks = []
@@ -421,7 +395,6 @@ def fit(control_dict, samples=None, burnin=None):
                 sigma=control_dict['out_sigma']
             ).mask
         )
-        print('removed {} points deviating > {}-sigma'.format(np.sum(masks[-1]), control_dict['out_sigma']))
         
     detrending_vectors = [dv[~m] if len(dv)==len(m) else [] for dv, m in zip(detrending_vectors, masks)]
 
@@ -486,7 +459,6 @@ def fit(control_dict, samples=None, burnin=None):
 
     return results
 
-# get n transit models from the posterior distribution for plotting 
 def get_model_samples(result, n=None):
     
     if n is None:
@@ -509,8 +481,7 @@ def get_model_samples(result, n=None):
             polyorder=result['polyorder']
         )
         return [get_single_model(p) for p in samples[inds]]
-
-# get the initial transit models and transit masks.
+    
 def check_initial_state(control_dict):
     
     times, spects, errs, wavs, _, fluxes = prep_data(control_dict)

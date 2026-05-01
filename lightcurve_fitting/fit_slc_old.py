@@ -89,8 +89,7 @@ def run(
     specs, 
     wl_params,
     stellar_params,
-    bin_low,
-    bin_high,
+    wav_bin_edges,
     masks,
     disp_filt,
     polyorder, 
@@ -121,8 +120,8 @@ def run(
             [t[m] for t, m in zip(times, mask)], 
             [s[m, ind] for s, m in zip(specs, mask)], 
             fixed_params, 
-            bin_low[ind],
-            bin_high[ind], 
+            wav_bin_edges[ind],
+            wav_bin_edges[ind + 1], 
             disp_filt,
             stellar_params, 
             polyorder=polyorder,
@@ -214,18 +213,6 @@ def crop(specs, errs, wavs, start_wav, end_wav):
         
     return specs, errs, wavs
 
-def bin_spec(specs, errs, wavs, start_wavs, end_wavs):
-    
-    specs = np.zeros(len(start_wavs))
-    errs = np.zeros(len(start_wavs))
-    wavs = np.zeros(len(start_wavs))
-    
-    for i, (s, e) in enumerate(zip(start_wavs, end_wavs)):
-        sp, er, _ = crop(specs, errs, wavs, s, e)
-        specs[i] = np.sum(sp, axis=1)
-        errs[i] = np.sqrt(np.sum(er**2, axis=1))
-        wavs[i] = 0.5 * (s + e)
-
 def fit(wlc_result, samples=None):
 
     if samples is None:
@@ -269,7 +256,72 @@ def fit(wlc_result, samples=None):
         wl_params.append(wl_vals)
          
     times = [np.array(t, dtype=np.float64) for t in times]
-    binned_wavs, binned_specs, _ = bin_spec(specs, errs, wavs, control_dict['bin_low'], control_dict['bin_high'])
+    specs, errs, wavs = crop(specs, errs, wavs, control_dict['start_wav'], control_dict['end_wav'])
+
+    wav_per_bin, pix_per_bin = control_dict['wav_per_bin'], control_dict['pix_per_bin']
+    if (wav_per_bin is None) & (pix_per_bin is None):
+        binned_wavs = wavs
+        binned_specs = specs
+        binned_errs = errs
+    elif wav_per_bin is None:
+        binned_wavs = np.array(
+            [np.sum(
+                wavs[pix_per_bin * i: pix_per_bin * (i + 1)]
+            ) for i in range(np.int64(len(wavs) // pix_per_bin))]
+        )
+        wav_bin_edges = np.array(
+            [wavs[pix_per_bin * i] for i in range(np.int64(len(wavs) // pix_per_bin + 1))]
+        )
+
+        binned_specs = []
+        binned_errs = []
+        for spec, err in zip(specs, errs):
+            binned_specs.append(
+                np.array(
+                    [np.nansum(
+                        spec[:, pix_per_bin * i: pix_per_bin * (i + 1)], axis=1
+                    ) for i in range(len(wavs) // pix_per_bin)]
+                ).T
+            )
+            binned_errs.append(
+                np.array(
+                    [np.sqrt(np.nansum(
+                        err[:, pix_per_bin * i: pix_per_bin * (i + 1)]**2, axis=1
+                    )) for i in range(len(wavs) // pix_per_bin)]
+                ).T
+            )
+    else:
+        nbands = np.int64((wavs[-1] - wavs[0]) // wav_per_bin)
+        wav_bin_edges = np.linspace(wavs[0], wavs[-1], nbands + 1)
+        binned_wavs = wav_bin_edges[:-1] + 0.5 * np.diff(wav_bin_edges)
+    
+        binned_specs = []
+        binned_errs = []
+        for spec, err in zip(specs, errs):
+            binned_specs.append(
+                np.array([
+                    np.nansum(
+                        spec[:, np.where(
+                            (wavs >= wav_bin_edges[i]) & 
+                            (wavs <= wav_bin_edges[i+1])
+                        )[0]],
+                        axis=1
+                    )
+                    for i in range(nbands)
+                ]).T
+            )
+            binned_errs.append(
+                np.array([
+                    np.sqrt(np.nansum(
+                        err[:, np.where(
+                            (wavs >= wav_bin_edges[i]) & 
+                            (wavs <= wav_bin_edges[i+1])
+                        )[0]]**2,
+                        axis=1
+                    ))
+                    for i in range(nbands)
+                ]).T
+            )
             
     filts = [gaussian_filter1d(bs, control_dict['out_filter_width'], axis=0) for bs in binned_specs]
     masks = [sigma_clip(bs - f, sigma=control_dict['out_sigma']).mask for bs, f in zip(binned_specs, filts)]
@@ -279,8 +331,7 @@ def fit(wlc_result, samples=None):
         binned_specs, 
         wl_params,
         stellar_params,
-        control_dict['bin_low'],
-        control_dict['bin_high'],
+        wav_bin_edges,
         masks,
         control_dict['disp_filt'],
         polyorder,
