@@ -214,18 +214,6 @@ def crop(specs, errs, wavs, start_wav, end_wav):
         
     return specs, errs, wavs
 
-def bin_spec(specs, errs, wavs, start_wavs, end_wavs):
-    
-    specs = np.zeros(len(start_wavs))
-    errs = np.zeros(len(start_wavs))
-    wavs = np.zeros(len(start_wavs))
-    
-    for i, (s, e) in enumerate(zip(start_wavs, end_wavs)):
-        sp, er, _ = crop(specs, errs, wavs, s, e)
-        specs[i] = np.sum(sp, axis=1)
-        errs[i] = np.sqrt(np.sum(er**2, axis=1))
-        wavs[i] = 0.5 * (s + e)
-
 def fit(wlc_result, samples=None):
 
     if samples is None:
@@ -269,8 +257,16 @@ def fit(wlc_result, samples=None):
         wl_params.append(wl_vals)
          
     times = [np.array(t, dtype=np.float64) for t in times]
-    binned_wavs, binned_specs, _ = bin_spec(specs, errs, wavs, control_dict['bin_low'], control_dict['bin_high'])
-            
+  
+    inbounds = (control_dict['bin_high'] > control_dict['start_wav']) & (control_dict['bin_low'] < control_dict['end_wav'])
+    bin_low = control_dict['bin_low'][inbounds]
+    bin_high = control_dict['bin_high'][inbounds]
+    binned_specs = []
+    for spec, err in zip(specs, errs):
+        binned_specs.append(np.array([np.nansum(spec[:, (wavs > s) & (wavs < e)], axis=1) for s, e in zip(bin_low, bin_high)]).T)
+    binned_wavs = 0.5 * (bin_low + bin_high)
+    [print(spec) for spec in binned_specs]
+
     filts = [gaussian_filter1d(bs, control_dict['out_filter_width'], axis=0) for bs in binned_specs]
     masks = [sigma_clip(bs - f, sigma=control_dict['out_sigma']).mask for bs, f in zip(binned_specs, filts)]
 
