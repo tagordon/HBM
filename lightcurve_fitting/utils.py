@@ -22,7 +22,9 @@ disp_filt_options = [
     'G395M/F290LP',
     'G235M/F170LP',
     'G140M/F100LP',
-    'G140M/F070LP'
+    'G140M/F070LP',
+    'GR700XD/CLEAR_o1',
+    'GR700XD/CLEAR_o2',
 ]
 
 wav_ranges = [
@@ -37,7 +39,9 @@ wav_ranges = [
     (2.87, 5.10),
     (1.66, 3.07),
     (0.97, 1.84),
-    (0.70, 1.27)
+    (0.70, 1.27),
+    (0.6, 0.85),
+    (0.85, 2.83),
 ]
 
 exotic_ld_modes = [
@@ -52,7 +56,9 @@ exotic_ld_modes = [
     'JWST_NIRSpec_G395M',
     'JWST_NIRSpec_G235M',
     'JWST_NIRSpec_G140M-f100',
-    'JWST_NIRSpec_G140M-f070'
+    'JWST_NIRSpec_G140M-f070',
+    'JWST_NIRISS_SOSSo1',
+    'JWST_NIRISS_SOSSo2',
 ]
 
 # get the wavelength ranges corresponding to the 

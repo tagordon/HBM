@@ -99,8 +99,8 @@ def load_priors(target, pl_ref, st_ref):
     
     return pl_priors, st_params
 
-# load input data from the JEDI pipeline 
-def load_data_jedi(d):
+# load input data from the JEDI pipeline -- not set up for NIRISS/SOSS
+def load_data_jedi(d, disp_filt):
 
     time = np.load(d + '_times_bjd.npy')
     time = np.array(time, dtype=np.float64)
@@ -116,17 +116,26 @@ def load_data_jedi(d):
     return time, wavs, spect, err, time_offset, xshifts, yshifts
 
 # load input data from the Eureka pipeline 
-def load_data_eureka(d):
+def load_data_eureka(d, disp_filt):
 
     with h5py.File(d, 'r') as file:
         time = np.array(file['time'], dtype=np.float64)
         time_offset = time[0]
-        #time -= time_offset
         spect = np.array(file['optspec'], dtype=np.float64)
         wavs = np.array(file['wave_1d'], dtype=np.float64)
+        err = np.array(file['opterr'], dtype=np.float64)
+        
+        if disp_filt.split('_')[-1] == 'o1':
+            spect = spect[:, :, 0]
+            wavs = wavs[:, 0]
+            err = err[:, :, 0]
+        elif disp_filt.split('_')[-1] == 'o2':
+            spect = spect[:, :, 1]
+            wavs = wavs[:, 1]
+            err = err[:, :, 1]
+            
         xshifts = np.array(file['x'], dtype=np.float64)
         yshifts = np.array(file['y'], dtype=np.float64)
-        err = np.array(file['opterr'], dtype=np.float64)
 
     return time, wavs, spect, err, time_offset, xshifts, yshifts
 
@@ -150,7 +159,7 @@ def prep_data(control_dict):
     errs = []
     tos = []
     for d in control_dict['data_directories']:
-        t, w, s, e, to, xs, ys = load_func(d)
+        t, w, s, e, to, xs, ys = load_func(d, control_dict['disp_filt'])
         times.append(t)
         spects.append(s)
         wavs.append(w)
@@ -364,8 +373,8 @@ def run_mcmc(
 # set any control parameters that weren't provided in the control dictionary to their default values 
 def set_optional_params(control_dict):
     
-    optional_params = ['polyorder', 'detrending_vectors', 'out_filter_width', 'out_sigma', 'progress']
-    defaults = [1, [[]], 50, 4, True]
+    optional_params = ['polyorder', 'detrending_vectors', 'out_filter_width', 'out_sigma', 'progress', 'delta_t0']
+    defaults = [1, [[]], 50, 4, True, 0.0]
     
     for k, d in zip(optional_params, defaults):
         
@@ -384,10 +393,10 @@ def fit(control_dict, samples=None, burnin=None):
         samples = control_dict['samples']
     if burnin is None:
         burnin = control_dict['burnin']
-    
+        
+    control_dict = set_optional_params(control_dict)
     times, spects, errs, wavs, _, _ = prep_data(control_dict)
     
-    control_dict = set_optional_params(control_dict)
     detrending_vectors = np.array(control_dict['detrending_vectors'] * len(times))
     
     n = len(times)
@@ -412,6 +421,7 @@ def fit(control_dict, samples=None, burnin=None):
                 sigma=control_dict['out_sigma']
             ).mask
         )
+        print('removed {} points deviating > {}-sigma'.format(np.sum(masks[-1]), control_dict['out_sigma']))
         
     detrending_vectors = [dv[~m] if len(dv)==len(m) else [] for dv, m in zip(detrending_vectors, masks)]
 
