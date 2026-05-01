@@ -397,6 +397,11 @@ def fit(control_dict, samples=None, burnin=None):
     control_dict = set_optional_params(control_dict)
     times, spects, errs, wavs, _, _ = prep_data(control_dict)
     
+    inbounds = (wavs > start_wav) & (wavs < end_wav)
+    wavs = wavs[inbounds]
+    spects = spects[:, inbounds]
+    errs = errs[:, inbounds]
+    
     detrending_vectors = np.array(control_dict['detrending_vectors'] * len(times))
     
     n = len(times)
@@ -406,11 +411,6 @@ def fit(control_dict, samples=None, burnin=None):
         
     n_sys_params_per_transit = control_dict['polyorder'] + len(control_dict['detrending_vectors'][0]) + 4 + nplanets
     n_sys_params = n_sys_params_per_transit * n
-      
-    # first transit should start at t=0 
-    #to = times[0][0]
-    #for i in range(len(times)):
-    #    times[i] -= to
 
     # build outlier masks 
     masks = []
