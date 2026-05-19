@@ -85,10 +85,14 @@ def get_initial_params(
     detrending_vectors, 
     priors,
     st_params,
+    init_mask=None,
     polyorder=1,
 ):
         
     mask = build_mask(time, flux, priors)
+    if init_mask is not None:
+        mask = mask | ~init_mask
+        
     coeffs, fit = gls_fit(
         time, 
         flux, 

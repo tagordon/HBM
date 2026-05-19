@@ -193,8 +193,14 @@ def prep_data(control_dict):
     errs = [e[:, mask] for e in errs]
     fluxes = [np.nansum(s, axis=1) for s in spects]
     specs = [np.nansum(s, axis=0) for s in spects]
+    flux_errs = [np.sqrt(np.nansum(e**2, axis=1)) for e in errs]
+    
+    #inbounds = [(wav > control_dict['start_wav']) & (wav < control_dict['end_wav']) for wav in wavs]
+    #wavs = [wav[ib] for wav, ib in zip(wavs, inbounds)]
+    #spects = [spect[:, ib] for spect, ib in zip(spects, inbounds)]
+    #errs = [err[:, ib] for err, ib in zip(errs, inbounds)]
         
-    return times, spects, errs, wavs, specs, fluxes
+    return times, spects, errs, wavs, specs, fluxes, flux_errs
 
 # get all of the log-probability functions (one for each visit, returned as an array)
 def get_log_probs(times, fluxes, errs, start_wav, end_wav, disp_filt, detrending_vectors, priors, st_params, polyorder=1):
@@ -316,7 +322,7 @@ def run_mcmc(
         end_wav,
         disp_filt,
         priors, 
-        st_params,  
+        st_params,
         polyorder,
     )
         
@@ -373,8 +379,8 @@ def run_mcmc(
 # set any control parameters that weren't provided in the control dictionary to their default values 
 def set_optional_params(control_dict):
     
-    optional_params = ['polyorder', 'detrending_vectors', 'out_filter_width', 'out_sigma', 'progress', 'delta_t0']
-    defaults = [1, [[]], 50, 4, True, 0.0]
+    optional_params = ['polyorder', 'out_filter_width', 'out_sigma', 'progress', 'delta_t0']
+    defaults = [1, 50, 4, True, 0.0]
     
     for k, d in zip(optional_params, defaults):
         
@@ -395,41 +401,48 @@ def fit(control_dict, samples=None, burnin=None):
         burnin = control_dict['burnin']
         
     control_dict = set_optional_params(control_dict)
-    times, spects, errs, wavs, _, _ = prep_data(control_dict)
+    times, spects, errs, wavs, _, fluxes, flux_errs = prep_data(control_dict)
     
     inbounds = [(wav > control_dict['start_wav']) & (wav < control_dict['end_wav']) for wav in wavs]
     wavs = [wav[ib] for wav, ib in zip(wavs, inbounds)]
     spects = [spect[:, ib] for spect, ib in zip(spects, inbounds)]
     errs = [err[:, ib] for err, ib in zip(errs, inbounds)]
     
-    detrending_vectors = np.array(control_dict['detrending_vectors'] * len(times))
+    try:
+        detrending_vectors = control_dict['detrending_vectors']
+    except:
+        detrending_vectors = np.array([[]] * len(times))
     
     n = len(times)
     nplanets = len(control_dict['priors'])
-    fluxes = [np.nansum(s, axis=1) for s in spects]
-    flux_err = [np.sqrt(np.nansum(e**2, axis=1)) for e in errs]
         
-    n_sys_params_per_transit = control_dict['polyorder'] + len(control_dict['detrending_vectors'][0]) + 4 + nplanets
+    n_sys_params_per_transit = control_dict['polyorder'] + len(detrending_vectors[0]) + 4 + nplanets
     n_sys_params = n_sys_params_per_transit * n
 
     # build outlier masks 
     masks = []
     for flux in fluxes:
         masks.append(
-            sigma_clip(
+            ~sigma_clip(
                 flux - gaussian_filter1d(flux, control_dict['out_filter_width']), 
                 sigma=control_dict['out_sigma']
             ).mask
         )
         print('removed {} points deviating > {}-sigma'.format(np.sum(masks[-1]), control_dict['out_sigma']))
-        
-    detrending_vectors = [dv[~m] if len(dv)==len(m) else [] for dv, m in zip(detrending_vectors, masks)]
+            
+    # build custom mask 
+    custom_masks = [np.ones_like(t, dtype=np.bool_) for t in times]
+    for mask, sl in zip(custom_masks, control_dict['mask_slices']):
+        for s in sl:
+            mask[slice(*s)] = False
+            
+    masks = [m & cm for m, cm in zip(masks, custom_masks)]
 
     sampler = run_mcmc(
-        [t[~m] for t, m in zip(times, masks)],
-        [f[~m] for f, m in zip(fluxes, masks)], 
-        [e[~m] for e, m in zip(flux_err, masks)],
-        [dv[~m] if len(dv)==len(m) else [] for dv, m in zip(detrending_vectors, masks)],
+        [t[m] for t, m in zip(times, masks)],
+        [f[m] for f, m in zip(fluxes, masks)], 
+        [e[m] for e, m in zip(flux_errs, masks)],
+        [dv[m] if len(dv)==len(m) else [] for dv, m in zip(detrending_vectors, masks)],
         control_dict['start_wav'],
         control_dict['end_wav'],
         control_dict['disp_filt'],
@@ -463,6 +476,7 @@ def fit(control_dict, samples=None, burnin=None):
             {
                 'control_dict': control_dict,
                 'detrending_vectors': detrending_vectors[i],
+                'custom_masks': custom_masks,
                 'polyorder': control_dict['polyorder'],
                 'chain': chain,
                 'mask': masks[i],
@@ -470,7 +484,7 @@ def fit(control_dict, samples=None, burnin=None):
                 'spect': spects[i],
                 'wavs': wavs[i],
                 'flux': fluxes[i],
-                'flux_err': flux_err[i],
+                'flux_err': flux_errs[i],
                 'errs': errs[i],
                 'labels': (
                     ['err_factor'] 
@@ -513,18 +527,40 @@ def get_model_samples(result, n=None):
 # get the initial transit models and transit masks.
 def check_initial_state(control_dict):
     
-    times, spects, errs, wavs, _, fluxes = prep_data(control_dict)
-    
+    control_dict = set_optional_params(control_dict)
+    times, spects, errs, wavs, _, fluxes, flux_errs = prep_data(control_dict)
+        
+    n = len(times)
+    nplanets = len(control_dict['priors'])
+
+    # build outlier masks 
+    masks = []
+    for flux in fluxes:
+        masks.append(
+            ~sigma_clip(
+                flux - gaussian_filter1d(flux, control_dict['out_filter_width']), 
+                sigma=control_dict['out_sigma']
+            ).mask
+        )
+        
+    # build custom mask 
+    custom_masks = [np.ones_like(t, dtype=np.bool_) for t in times]
+    for mask, sl in zip(custom_masks, control_dict['mask_slices']):
+        for s in sl:
+            mask[slice(*s)] = False
+            
+    masks = [m & cm for m, cm in zip(masks, custom_masks)]
+        
     try:
         detrending_vectors = control_dict['detrending_vectors']
     except:
         detrending_vectors = np.array([[]] * len(times))
-    
+            
     models = []
-    masks = []
-    for time, spect, err, flux, dv in zip(times, spects, errs, fluxes, detrending_vectors):
-
-        inits, _, mask = get_initial_params(
+    new_masks = []
+    for time, spect, err, flux, dv, m in zip(times, spects, errs, fluxes, detrending_vectors, masks):
+        
+        inits, _, mi = get_initial_params(
             time,
             flux, 
             err,
@@ -535,9 +571,12 @@ def check_initial_state(control_dict):
             control_dict['priors'],
             control_dict['stellar_parameters'],
             polyorder=control_dict['polyorder'],
+            init_mask = m
         )
         
-        masks.append(mask)
+        #new_masks.append(mi | m)
+        #new_masks.append(~mi & m)
+        new_masks.append(~mi)
         
         models.append(
             get_model(
@@ -548,4 +587,4 @@ def check_initial_state(control_dict):
             )
         )
         
-    return models, masks
+    return models, new_masks
