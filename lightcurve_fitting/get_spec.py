@@ -70,7 +70,7 @@ def main():
         plt.ylabel('transit depth (ppm)')
         plt.savefig(args.out_dir + planet + '_spectrum.pdf')
 
-        np.savetxt(args.out_dir + planet + '_spec.txt', np.vstack([binned_wavs, depths, errs]).T)
+        np.savetxt(args.out_dir + planet + '_spectrum.txt', np.vstack([binned_wavs, depths, errs]).T)
         
 if __name__ == '__main__':
     sys.exit(main())
